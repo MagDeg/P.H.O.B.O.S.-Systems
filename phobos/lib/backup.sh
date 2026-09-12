@@ -19,14 +19,30 @@ save_folder() {
         return 1
     fi
 
+
+    # counts all files found by find
+    local total=0
+
+    # counts files for which new or updated .phbs-container was created
+    local changed=0
+
+    #counts files where source hash was identical to hash stored inside existing .phbs-container
+    local skipped=0
+
+    #counts files where save_file() returned error
+    local errors=0
+
+    # start time of total backup operation
+    local start_time
+    start_time=$(date +%s%3N)
+
+
+
     # removing "/" at the end of path
     # %/ means, remove / if existing from the end 
     source_dir="${source_dir%/}"
 
-    # searching through source directory (find works recursively)
-    # -type f means, only normale files (f), directoryies will not be worked with
-    # -print0: typically find will separate files with returns, which can cause errors, so -print0 separates files with a NUL-Byte
-    find "$source_dir" -type f -print0 |
+
     # result of find will be given to the while - loop
     # IFS = Internal Field Separator (prohibits separation by space-characters)
     # read -r: reads input, -r prohibits special interpretation of "\"
@@ -56,7 +72,69 @@ save_folder() {
 
         # save the current file according to the protocoll provided in save_file to this path (target_dir)
         save_file "$file" "$target_dir"
-    done
+
+        # $? contains exit status of command executed immediatly before
+        local status=$?
+
+        # every file processed in loop counts in total 
+        total=$((total + 1))
+
+        case "$status" in 
+            0) 
+                # source file was unchanged; no new backup necessary
+                ((skipped++))
+                ;;
+            2) 
+                # source file was new or changed; new .phbs-container was created
+                ((changed++))
+                ;;
+            *)
+                # every other return values is treated as error
+                ((errors++))
+                ;;
+        esac
+
+    # has sth. to do with process substitution so, loop will be running in current shell and not always in new shells    
+    
+    # searching through source directory (find works recursively)
+    # -type f means, only normale files (f), directoryies will not be worked with
+    # -print0: typically find will separate files with returns, which can cause errors, so -print0 separates files with a NUL-Byte
+    # result will be returned like a file
+    # first < means: take file as input for while-loop
+    # second < means: process substitution: makes output of find to sth like a file
+    done < <(find "$source_dir" -type f -print0)
+
+    # save curretn Unix timestamp after backup finished
+    local end_time
+    end_time=$(date +%s%3N)
+    local duration
+    duration=$((end_time - start_time))
+
+    # pass all collected statistics to log_backup()
+    log_backup \
+        "$source_dir" \
+        "$backup_dir" \
+        "$total" \
+        "$changed" \
+        "$skipped" \
+        "$errors" \
+        "$duration"
+    
+    #display summary
+    echo ""
+    echo "Backup finished"
+    echo "Files:    $total"
+    echo "Changed:  $changed"
+    echo "Skipped:  $skipped"
+    echo "Errors:   $errors"
+    echo "Duration: ${duration}ms"
+
+    # if there was an error with a single file, the parentfunction shall also return an error
+    if (( errors > 0 )); then
+        return 1
+    fi
+
+    return 0
 }
 
 
@@ -68,6 +146,9 @@ save_file() {
     # is provided file a existing normal file?
     if [[ ! -f "$source" ]]; then
         echo "File not found: $source"
+
+        # return 1 menas that an error occurred
+        # this status will later be counted by save_folder()
         return 1
     fi
 
@@ -121,6 +202,9 @@ save_file() {
             # if hashes are identically there is no need for a new backup
             if [[ "$source_hash" == "$backup_hash" ]]; then
                 echo "Unchanged: $source"
+                # return 0 means that the file was successfully checked
+                # but no new backup was necessary because the file is unchanged
+                # save_folder() uses this status to increase "skipped" counter
                 return 0
             fi
         fi
@@ -180,4 +264,9 @@ ORIGINAL_SIZE=$original_size"
     rm -f "$compressed"
 
     echo "Erstellt: $container"
+    # retunr 2 means, file was successfully backed up 
+    # either because the backup did nit exist yet
+    # or because source file had changed
+    # save_folder() uses this status to increase the "changed" counter
+    return 2
 }

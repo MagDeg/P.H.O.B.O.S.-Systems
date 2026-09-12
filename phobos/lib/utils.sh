@@ -19,17 +19,80 @@ should_compress() {
     return 0
 }
 
-#install script as global command (adds phobos to path)
+#install script as global command (adds phobos to path) -> primary for debug purposes
 add_to_path() {
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    # defining the directory of the current project
+    #
+    # BASH_SOURCE[0] contains the path of the file in which this
+    # function is currently defined.
+    #
+    # Because this function is located in:
+    #
+    # phobos/lib/utils.sh
+    #
+    # dirname gives us:
+    #
+    # phobos/lib
+    #
+    # /.. moves one directory upwards:
+    #
+    # phobos
+    local project_dir
+    project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-    sudo mkdir -p /usr/local/lib/phobos
-    sudo cp "$script_dir/phobos.sh" /usr/local/bin/phobos
-    sudo cp -r "$script_dir/lib/." /usr/local/lib/phobos/
-    sudo chmod +x /usr/local/bin/phobos
+    # defining the installation directory for PHOBOS
+    #
+    # All PHOBOS library files will be stored here.
+    local install_dir="/usr/local/lib/phobos"
 
-    echo "Added PHOBOS to local path!"
+    # create the installation directory
+    #
+    # -p also creates missing parent directories
+    sudo mkdir -p "$install_dir"
+
+    # check if creating the installation directory was successful
+    if [[ $? -ne 0 ]]; then
+        echo "Could not create installation directory: $install_dir"
+        return 1
+    fi
+
+    # copy the main PHOBOS script into the installation directory
+    if ! sudo cp "$project_dir/phobos.sh" "$install_dir/phobos.sh"; then
+        echo "Could not install phobos.sh"
+        return 1
+    fi
+
+    # copy all library files into the installation directory
+    #
+    # The "." means:
+    # copy the contents of lib/
+    # and not the lib directory itself.
+    if ! sudo cp -r "$project_dir/lib/." "$install_dir/"; then
+        echo "Could not install PHOBOS libraries"
+        return 1
+    fi
+
+    # make the main PHOBOS script executable
+    if ! sudo chmod +x "$install_dir/phobos.sh"; then
+        echo "Could not make phobos.sh executable"
+        return 1
+    fi
+
+    # create a symbolic link in /usr/local/bin
+    #
+    # This allows the command:
+    #
+    # phobos
+    #
+    # instead of:
+    #
+    # /usr/local/lib/phobos/phobos.sh
+    if ! sudo ln -sf "$install_dir/phobos.sh" /usr/local/bin/phobos; then
+        echo "Could not create /usr/local/bin/phobos"
+        return 1
+    fi
+
+    echo "PHOBOS successfully installed!"
 }
 
 
@@ -62,4 +125,39 @@ check_dependencies() {
 # returns version of phobos system
 version() {
     echo "$VERSION"
+}
+
+log_backup() {
+    # defining parameters as local variables
+    # values will be handed over by save_folder()
+    local source="$1"
+    local backup="$2"
+    local total="$3"
+    local changed="$4"
+    local skipped="$5"
+    local errors="$6"
+    local duration="$7"
+
+    # create .phobos directory in user's home dir
+    # -p means that mkdir does not report an error if dir already exists
+    # log file will stored at: ~/.phobos/phobos.log
+    mkdir -p "$HOME/.phobos"
+
+    # write one complete backup entry into logfile
+    # date: creates current timestamp
+    # >>: appends new line to logfile instead of overriting existing logfile
+    # format:
+    # DATE | BACKUP | source=... | destination=... |
+    # files=... | changed=... | skipped=... |
+    # errors=... | duration=...s
+    printf '%s | BACKUP | source=%s | destination=%s | files=%s | changed=%s | skipped=%s | errors=%s | duration=%ss\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" \
+        "$source" \
+        "$backup" \
+        "$total" \
+        "$changed" \
+        "$skipped" \
+        "$errors" \
+        "$duration" \
+        >> "$HOME/.phobos/phobos.log"
 }

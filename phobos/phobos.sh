@@ -1,13 +1,48 @@
 #!/bin/bash
 #declares interpreter for this script
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# determining the real path of the currently executed PHOBOS script
+#
+# readlink -f resolves symbolic links.
+#
+# This is important because /usr/local/bin/phobos is a symbolic link
+# to the actual PHOBOS script in /usr/local/lib/phobos/.
+local_script="$(readlink -f "${BASH_SOURCE[0]}")"
 
-source "$SCRIPT_DIR/lib/config.sh"
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/backup.sh"
-source "$SCRIPT_DIR/lib/restore.sh"
-source "$SCRIPT_DIR/lib/container.sh"
+# extracting the directory in which the actual phobos.sh is located
+SCRIPT_DIR="$(dirname "$local_script")"
+
+# checking if a separate lib directory exists
+#
+# In the development environment the structure is:
+#
+# phobos/
+# ├── phobos.sh
+# └── lib/
+#     ├── config.sh
+#     ├── utils.sh
+#     └── ...
+#
+# During installation the library files are currently copied directly
+# next to phobos.sh:
+#
+# /usr/local/lib/phobos/
+# ├── phobos.sh
+# ├── config.sh
+# ├── utils.sh
+# └── ...
+if [[ -d "$SCRIPT_DIR/lib" ]]; then
+    LIB_DIR="$SCRIPT_DIR/lib"
+else
+    LIB_DIR="$SCRIPT_DIR"
+fi
+
+# loading all PHOBOS libraries
+source "$LIB_DIR/config.sh"
+source "$LIB_DIR/utils.sh"
+source "$LIB_DIR/backup.sh"
+source "$LIB_DIR/restore.sh"
+source "$LIB_DIR/container.sh"
 
 # case statement to handle phobos-commands
 case "$1" in 
