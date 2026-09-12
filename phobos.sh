@@ -4,9 +4,35 @@
 # const variable for versioning
 readonly VERSION="0.0.1"
 
+# contains file types that are already compressed, so there is no need to compress them again
+readonly NO_COMPRESS_EXTENSIONS=(
+    jpg jpeg png gif webp avif heic
+    mp4 mkv avi mov webm
+    mp3 flac wav ogg aac
+    zip rar 7z gt bz2 xz zst
+    pdf
+)
+
+# helper function, that returns, if a file type shall be compressed or not
+# returns 0 if shall be compressed and 1 otherwise
+should_compress() {
+    local file="$1"
+    local ext="${file##*.}"
+
+    ext="${ext,,}"
+
+    for no_ext in "${NO_COMPRESS_EXTENSIONS[@]}"; do
+        if [[ "$ext" == "$no_ext" ]]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 #install script as global command (adds phobos to path)
 add_to_path() {
     sudo cp phobos.sh /usr/local/bin/phobos
+    echo "Added PHOBOS to local path!"
 }
 
 
@@ -29,7 +55,7 @@ check_dependencies() {
             sudo pacman -S --noconfirm xxhash
         # in case there is no supported package manager
         else
-            echo "Kein unterstützter Paketmanager gefunden."
+            echo "No supported package manager was found."
             # ends total script
             exit 1
         fi
@@ -50,7 +76,7 @@ save_folder() {
     # -z means, if the string is empty
     # if so, the parameters are not given correctly
     if [[ -z "$source_dir" || -z "$backup_dir" ]]; then
-        echo "Verwendung: phobos save_dir <quelle> <backup>"
+        echo "Usage: phobos save_dir <quelle> <backup>"
         # ends function
         return 1
     fi
@@ -58,7 +84,7 @@ save_folder() {
     # -d means, if path exists and if it is a directory
     # checks if path source directory exists
     if [[ ! -d "$source_dir" ]]; then
-        echo "Quellverzeichnis nicht gefunden: $source_dir"
+        echo "source directory not found: $source_dir"
         return 1
     fi
 
@@ -110,7 +136,7 @@ save_file() {
 
     # is provided file a existing normal file?
     if [[ ! -f "$source" ]]; then
-        echo "Datei nicht gefunden: $source"
+        echo "File not found: $source"
         return 1
     fi
 
@@ -163,7 +189,7 @@ save_file() {
             # compares hash of source file with hash stored in backup
             # if hashes are identically there is no need for a new backup
             if [[ "$source_hash" == "$backup_hash" ]]; then
-                echo "Unverändert: $source"
+                echo "Unchanged: $source"
                 return 0
             fi
         fi
@@ -175,10 +201,20 @@ save_file() {
     #mktemp creates temorary file
     compressed=$(mktemp)
 
-    # compresses file 
-    # -c: write compressed file to stdout instead of changing original file
-    # result is pushed to temporary file by using '>'
-    gzip -c "$source" > "$compressed"
+
+    local compression_type
+
+    if should_compress "$source"; then
+        # compresses file 
+        # -c: write compressed file to stdout instead of changing original file
+        # result is pushed to temporary file by using '>'
+        gzip -c "$source" > "$compressed"
+        compression_type="gzip"
+    else 
+        cp "$source" "$compressed"
+        compression_type="none"
+    fi 
+
 
     # building custom header for .phbs files
     # VERSION of container-format, if it will be updated in the future
@@ -186,11 +222,12 @@ save_file() {
     # COMPRESSION states the type of compression 
     # FILENAME saves original filename
     # ORIGINAL_SIZE saves originale size of file
+
     local header
     header="PHBS
 VERSION=1
 HASH=$source_hash
-COMPRESSION=gzip
+COMPRESSION=$compression_type
 FILENAME=$filename
 ORIGINAL_SIZE=$original_size"
 
@@ -214,6 +251,7 @@ ORIGINAL_SIZE=$original_size"
     echo "Erstellt: $container"
 }
 
+
 restore_file() {
     # defining parameters as local variables
     local container="$1" # path to .phbs file
@@ -221,7 +259,7 @@ restore_file() {
 
     # checking if .phbs-container exists
     if [[ ! -f "$container" ]]; then
-        echo "Container nicht gefunden: $container"
+        echo "Container not found: $container"
         return 1
     fi
 
@@ -236,7 +274,7 @@ restore_file() {
     # + one or multple of those
     # $ end of text
     if ! [[ "$header_size" =~ ^[0-9]+$ ]]; then
-        echo "Ungültiger PHBS-Container."
+        echo "Invalid PHBS-Container."
         return 1
     fi
 
@@ -257,7 +295,7 @@ restore_file() {
     # checking if header starts with PHBS to make shure it is a phobos-container
     # grep -q : search but do not return result
     if ! grep -q '^PHBS$' <<< "$header"; then
-        echo "Ungültiger PHBS-Container."
+        echo "Invalid PHBS-Container."
         return 1
     fi
 
@@ -274,15 +312,12 @@ restore_file() {
 
     # cecking if filename exits, if not, file can not be restored
     if [[ -z "$filename" ]]; then
-        echo "Kein Dateiname im Header."
+        echo "Header contains no filename."
         return 1
     fi
 
-    # checking compression type (for now only gzip is supported / used)
-    if [[ "$compression" != "gzip" ]]; then
-        echo "Nicht unterstützte Kompression: $compression"
-        return 1
-    fi
+
+
 
     # if target directory does not already exists it will be created
     # -p creates also the parent-directories
@@ -298,17 +333,35 @@ restore_file() {
     # creating target path
     local output="$restore_dir/$filename"
 
-    echo "Stelle wieder her: $output"
+    echo "Restoring: $output"
 
-    # restoring file
-    # gzip -d : decrompressing
-    # -c : write result to stdcout, instead of overriting source file
-    # > : moves output to correct file
-    if ! gzip -dc "$compressed" > "$output"; then
-        echo "Fehler beim Dekomprimieren."
-        rm -f "$compressed" "$output"
-        return 1
-    fi
+    # checking compression type
+    case "$compression" in 
+        # if type is gzip, file has been compressed using gzip and can be properly decompressed
+        gzip) 
+            # restoring file
+            # gzip -d : decrompressing
+            # -c : write result to stdcout, instead of overriting source file
+            # > : moves output to correct file
+            if ! gzip -dc "$compressed" > "$output"; then
+                echo "Error while decompression"
+                rm -f "$compressed" "$output"
+                return 1
+            fi
+            ;;
+        # if type is none, file has not been compressed, because it was a non-compress file
+        # so it will only be copied
+        none)
+            cp "$compressed" "$output"
+            ;;
+        *)
+            echo "Not supported compression type: $compression"
+            rm -f "$compressed"
+            return 1
+            ;;
+    esac
+
+
 
     # remove temporary file
     rm -f "$compressed"
@@ -320,15 +373,15 @@ restore_file() {
 
     # if those hashes dont match, sth went wrong during process (e.g. file was damaged)
     if [[ "$actual_hash" != "$expected_hash" ]]; then
-        echo "FEHLER: Hash stimmt nicht überein!"
-        echo "Erwartet: $expected_hash"
-        echo "Erhalten: $actual_hash"
+        echo "Error: Hashes are not consistent!"
+        echo "Expected: $expected_hash"
+        echo "Received: $actual_hash"
         # remove faulty file
         rm -f "$output"
         return 1
     fi
 
-    echo "Erfolgreich wiederhergestellt: $output"
+    echo "Successfully recovered: $output"
 }
 
 
@@ -339,13 +392,13 @@ restore_dir() {
 
     # if either of those parameters is empty, the funtion is not called properly
     if [[ -z "$backup_dir" || -z "$restore_dir" ]]; then
-        echo "Verwendung: phobos restore_dir <backup> <ziel>"
+        echo "Usage: phobos restore_dir <backup> <ziel>"
         return 1
     fi
 
     # checking if backup-directory exists properly
     if [[ ! -d "$backup_dir" ]]; then
-        echo "Backup-Verzeichnis nicht gefunden: $backup_dir"
+        echo "Backup-directory not found: $backup_dir"
         return 1
     fi
 
@@ -380,7 +433,7 @@ restore_dir() {
 
         # restore file is delageted to designated function
         if ! restore_file "$container" "$target_dir"; then
-            echo "Fehler bei: $container"
+            echo "Error with: $container"
         fi
 
     done
@@ -394,7 +447,7 @@ info() {
 
     # checking if .phsb-file exits
     if [[ ! -f "$container" ]]; then
-        echo "Datei nicht gefunden: $container"
+        echo "File not found: $container"
         return 1
     fi
 
@@ -406,7 +459,7 @@ info() {
 
     # validating header size using REGEX, so only numbers are contained
     if ! [[ "$header_size" =~ ^[0-9]+$ ]]; then
-        echo "Ungültiger PHBS-Container."
+        echo "Invalid PHBS-Container."
         return 1
     fi
 
@@ -416,7 +469,7 @@ info() {
 
     # checking if container is phbs-container
     if ! grep -q "^PHBS$" <<< "$header"; then
-        echo "Ungültiger PHBS-Container."
+        echo "Invalid PHBS-Container."
         return 1
     fi
 
