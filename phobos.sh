@@ -17,10 +17,15 @@ readonly NO_COMPRESS_EXTENSIONS=(
 # returns 0 if shall be compressed and 1 otherwise
 should_compress() {
     local file="$1"
+
+
+    # extracting file ending
     local ext="${file##*.}"
 
+    # force letter so be lowercase
     ext="${ext,,}"
-
+    
+    # @ return all elements of array one by one
     for no_ext in "${NO_COMPRESS_EXTENSIONS[@]}"; do
         if [[ "$ext" == "$no_ext" ]]; then
             return 1
@@ -531,8 +536,15 @@ case "$1" in
     check_dependancies)
         check_dependancies
         ;;
-    save_dir)
-        save_folder "$2" "$3"
+    save)
+        if [[ -d "$2" ]]; then
+            save_folder "$2" "$3"
+        elif [[ -f "$2" ]]; then
+            save_file "$2" "$3"
+        else 
+            echo "Source not found: $2"
+            exit 1
+        fi
         ;;
     info)
         info "$2"
@@ -540,11 +552,16 @@ case "$1" in
     add_to_path)
         add_to_path
         ;;
-    restore_dir)
-        restore_dir "$2" "$3"
-        ;;
-    restore_file)
-        restore_file "$2" "$3"
+    restore)
+        # checks if input parameter is a directory
+        if [[ -d "$2" ]]; then 
+            restore_dir "$2" "$3"
+        elif [[ -f "$2" ]]; then 
+            restore_file "$2" "$3"
+        else 
+            echo "Backup not found: $2"
+            exit 1
+        fi
         ;;
     *)
         echo "Ungültiger Befehl"
