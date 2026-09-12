@@ -43,6 +43,7 @@ source "$LIB_DIR/utils.sh"
 source "$LIB_DIR/backup.sh"
 source "$LIB_DIR/restore.sh"
 source "$LIB_DIR/container.sh"
+source "$LIB_DIR/scheduler.sh"
 
 # case statement to handle phobos-commands
 case "$1" in 
@@ -81,6 +82,44 @@ case "$1" in
             echo "Backup not found: $2"
             exit 1
         fi
+        ;;
+    schedule)
+        case "$2" in    
+            add)
+                # shifts argument positions (basically skips first two, because they are not needed as params here)
+                shift 2
+                # $@ means, all arguments will be handed through one by one
+                schedule_add "$@"
+                ;;
+            run)
+                schedule_run
+                ;;
+            enable)
+                schedule_enable
+                ;;
+            disable)
+                schedule_disable
+                ;;
+            status)
+                schedule_status
+                ;;
+            remove)
+                schedule_remove "$3"
+                ;; 
+            list)
+                schedule_list
+                ;;
+            *)
+                echo "Usage:"
+                echo "  phobos schedule add <name> <source> <destination> <interval> [--drive <label>]"
+                echo "  phobos schedule run"
+                echo "  phobos schedule enable"
+                echo "  phobos schedule disable"
+                echo "  phobos schedule status"
+                echo "  phobos schedule remove <name>"
+                echo "  phobos schedule list"
+                ;;
+        esac
         ;;
     *)
         echo "Ungültiger Befehl"
